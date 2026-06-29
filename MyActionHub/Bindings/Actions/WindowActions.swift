@@ -61,7 +61,12 @@ enum WindowActions {
             kAXFocusedWindowAttribute as CFString,
             &value
         )
-        guard status == .success, let window = value else { return nil }
+        guard status == .success, let window = value else {
+            // 失敗の主因はアクセシビリティ権限未付与か、対象アプリに focused window が無い。
+            // 詳細な診断ログは取得しない(高頻度に呼ばれるため)。
+            log.debug("focusedWindow nil: status=\(status.rawValue, privacy: .public)")
+            return nil
+        }
         return (window as! AXUIElement)
     }
 
@@ -85,11 +90,21 @@ enum WindowActions {
         guard let posValue = AXValueCreate(.cgPoint, &position),
               let sizeValue = AXValueCreate(.cgSize, &size)
         else { return }
-        // サイズが先のことが多いが、両方順に投げる
+        // ウィンドウマネージャの肝: position → size → position の三段。
+        // size 設定で position がクランプされる挙動の対策。
         AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, posValue)
         AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
-        // 念のため位置をもう一度(sizeを設定した結果クランプされる場合がある)
         AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, posValue)
+
+        // 診断: 設定後の実際のフレームをログ。
+        // (アプリ側に最大幅制限があると、ここで target と差が出る)
+        if let actual = axFrame(of: window) {
+            let dw = abs(actual.width - frame.width)
+            let dh = abs(actual.height - frame.height)
+            if dw > 1 || dh > 1 {
+                log.warning("Resize clamped by app: target=\(Int(frame.width))x\(Int(frame.height)) actual=\(Int(actual.width))x\(Int(actual.height))")
+            }
+        }
     }
 
     /// ウィンドウの中心が乗っているスクリーンの visibleFrame を **AX 座標** で返す。
