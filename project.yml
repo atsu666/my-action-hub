@@ -1,0 +1,52 @@
+name: MyActionHub
+options:
+  bundleIdPrefix: com.appleple
+  deploymentTarget:
+    macOS: "13.0"
+  developmentLanguage: ja
+  createIntermediateGroups: true
+
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.9"
+    ENABLE_HARDENED_RUNTIME: YES
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "-"
+    ARCHS: arm64
+    ONLY_ACTIVE_ARCH: YES
+
+targets:
+  MyActionHub:
+    type: application
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - path: MyActionHub
+        excludes:
+          - "Info.plist"
+          - "MyActionHub.entitlements"
+          - "MultitouchSupport-Bridging-Header.h"
+    settings:
+      base:
+        PRODUCT_NAME: MyActionHub
+        PRODUCT_BUNDLE_IDENTIFIER: com.appleple.myactionhub
+        INFOPLIST_FILE: MyActionHub/Info.plist
+        CODE_SIGN_ENTITLEMENTS: MyActionHub/MyActionHub.entitlements
+        SWIFT_OBJC_BRIDGING_HEADER: MyActionHub/MultitouchSupport-Bridging-Header.h
+        FRAMEWORK_SEARCH_PATHS:
+          - $(inherited)
+          - /System/Library/PrivateFrameworks
+        OTHER_LDFLAGS:
+          - $(inherited)
+          - -F/System/Library/PrivateFrameworks
+          - -weak_framework
+          - MultitouchSupport
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        SKIP_INSTALL: NO
+        LSUIElement: YES
+    dependencies:
+      - sdk: Carbon.framework
+      - sdk: ServiceManagement.framework
+      - sdk: ApplicationServices.framework
