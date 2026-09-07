@@ -11,9 +11,18 @@ settings:
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.9"
-    ENABLE_HARDENED_RUNTIME: YES
-    CODE_SIGN_STYLE: Automatic
-    CODE_SIGN_IDENTITY: "-"
+    # ad-hoc 署名(CODE_SIGN_IDENTITY: "-")だと TCC がアプリを cdhash で識別するため、
+    # リビルドのたびにアクセシビリティ/入力監視の再付与が必要になる。
+    # 自己署名のコード署名証明書を使うと指定要件が
+    #   identifier "com.appleple.myactionhub" and certificate leaf = H"<証明書のハッシュ>"
+    # となり、バイナリが変わっても要件が一致するので権限が維持される。
+    #
+    # 証明書はキーチェーンアクセスの「証明書アシスタント」で作った自己署名ルート
+    # (証明書のタイプ: コード署名)。信頼設定は不要(DR はチェーンの信頼を見ない)。
+    # 環境を移すときは同名で作り直すか、証明書を書き出して読み込むこと。
+    ENABLE_HARDENED_RUNTIME: NO  # ad-hoc 時に自動で無効化されていた挙動を維持
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "MyActionHub Dev"
     ARCHS: arm64
     ONLY_ACTIVE_ARCH: YES
 
@@ -50,3 +59,15 @@ targets:
       - sdk: Carbon.framework
       - sdk: ServiceManagement.framework
       - sdk: ApplicationServices.framework
+
+# 共有スキームを明示的に生成する。これが無いと xcodegen generate のたびに
+# スキームが消え、xcodebuild -scheme や Xcode の ⌘R が使えなくなる。
+schemes:
+  MyActionHub:
+    build:
+      targets:
+        MyActionHub: all
+    run:
+      config: Debug
+    archive:
+      config: Release
