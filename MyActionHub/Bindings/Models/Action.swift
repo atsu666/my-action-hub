@@ -10,11 +10,23 @@ enum Action: Codable, Hashable {
     case maximizeWindow
     case snapWindowLeft(widthPercent: Int)
     case snapWindowRight(widthPercent: Int)
-    case openFinder
+    case toggleFinder
     case toggleApp(bundleID: String)
 
     /// IME Switcher 内部用。Binding テーブルには出さない。
     case selectInputSource(InputSourceTarget)
+
+    /// JSON のキー名。`toggleFinder` は当初 `openFinder` という名前で
+    /// 「Finder を開く」だけの Action だった。既存の config.json を
+    /// 読めなくしない(= 全 Binding が消えない)ため、キー名は据え置く。
+    enum CodingKeys: String, CodingKey {
+        case maximizeWindow
+        case snapWindowLeft
+        case snapWindowRight
+        case toggleFinder = "openFinder"
+        case toggleApp
+        case selectInputSource
+    }
 
     enum InputSourceTarget: String, Codable, Hashable {
         case ascii    // ABC 系
@@ -29,8 +41,8 @@ enum Action: Codable, Hashable {
             return "ウィンドウを左に寄せる (\(pct)%)"
         case .snapWindowRight(let pct):
             return "ウィンドウを右に寄せる (\(pct)%)"
-        case .openFinder:
-            return "Finder を開く"
+        case .toggleFinder:
+            return "Finder の表示/非表示トグル"
         case .toggleApp(let bundleID):
             return "アプリトグル (\(bundleID))"
         case .selectInputSource(let target):
@@ -44,7 +56,7 @@ enum Action: Codable, Hashable {
         case .maximizeWindow:    return .maximizeWindow
         case .snapWindowLeft:    return .snapWindowLeft
         case .snapWindowRight:   return .snapWindowRight
-        case .openFinder:        return .openFinder
+        case .toggleFinder:      return .toggleFinder
         case .toggleApp:         return .toggleApp
         case .selectInputSource: return .selectInputSource
         }
@@ -54,7 +66,7 @@ enum Action: Codable, Hashable {
         case maximizeWindow
         case snapWindowLeft
         case snapWindowRight
-        case openFinder
+        case toggleFinder
         case toggleApp
         case selectInputSource
 
@@ -63,7 +75,7 @@ enum Action: Codable, Hashable {
             case .maximizeWindow:    return "ウィンドウを最大化"
             case .snapWindowLeft:    return "ウィンドウを左に寄せる"
             case .snapWindowRight:   return "ウィンドウを右に寄せる"
-            case .openFinder:        return "Finder を開く"
+            case .toggleFinder:      return "Finder の表示/非表示トグル"
             case .toggleApp:         return "アプリの表示/非表示トグル"
             case .selectInputSource: return "Input Source を選択"
             }
@@ -71,7 +83,7 @@ enum Action: Codable, Hashable {
 
         /// Binding 編集UIで選択可能な種別(`.selectInputSource` は除外)。
         static var userSelectable: [Kind] {
-            [.maximizeWindow, .snapWindowLeft, .snapWindowRight, .openFinder, .toggleApp]
+            [.maximizeWindow, .snapWindowLeft, .snapWindowRight, .toggleFinder, .toggleApp]
         }
     }
 }

@@ -15,8 +15,8 @@ final class ActionExecutor {
             WindowActions.snapLeft(widthPercent: pct)
         case .snapWindowRight(let pct):
             WindowActions.snapRight(widthPercent: pct)
-        case .openFinder:
-            FinderAction.openHome()
+        case .toggleFinder:
+            FinderAction.toggle()
         case .toggleApp(let bundleID):
             AppToggleAction.toggle(bundleID: bundleID)
         case .selectInputSource(let target):

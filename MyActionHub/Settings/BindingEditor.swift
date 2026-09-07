@@ -188,7 +188,7 @@ private struct ActionSection: View {
             SnapWidthRow(draft: $draft)
         case .toggleApp:
             AppPickerRow(draft: $draft)
-        case .maximizeWindow, .openFinder, .selectInputSource:
+        case .maximizeWindow, .toggleFinder, .selectInputSource:
             Text("(パラメータなし)").foregroundStyle(.secondary)
         }
     }
@@ -310,8 +310,8 @@ struct BindingDraft: Equatable {
         case .snapWindowRight(let pct):
             d.actionKind = .snapWindowRight
             d.snapWidthPercent = pct
-        case .openFinder:
-            d.actionKind = .openFinder
+        case .toggleFinder:
+            d.actionKind = .toggleFinder
         case .toggleApp(let id):
             d.actionKind = .toggleApp
             d.appBundleID = id
@@ -358,8 +358,8 @@ struct BindingDraft: Equatable {
             action = .snapWindowLeft(widthPercent: snapWidthPercent)
         case .snapWindowRight:
             action = .snapWindowRight(widthPercent: snapWidthPercent)
-        case .openFinder:
-            action = .openFinder
+        case .toggleFinder:
+            action = .toggleFinder
         case .toggleApp:
             guard !appBundleID.isEmpty else { return nil }
             action = .toggleApp(bundleID: appBundleID)
