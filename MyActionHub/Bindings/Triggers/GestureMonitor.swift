@@ -183,11 +183,9 @@ final class GestureMonitor {
             let cfArray = unmanaged.takeRetainedValue()
             deviceList = cfArray
             devicesAreOwned = false
-            if let array = cfArray as? [AnyObject] {
-                for obj in array {
-                    let opaque = Unmanaged.passUnretained(obj).toOpaque()
-                    devices.append(OpaquePointer(opaque))
-                }
+            for obj in cfArray as [AnyObject] {
+                let opaque = Unmanaged.passUnretained(obj).toOpaque()
+                devices.append(OpaquePointer(opaque))
             }
         }
 
