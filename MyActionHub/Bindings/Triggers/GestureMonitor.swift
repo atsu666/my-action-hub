@@ -10,6 +10,10 @@ import os.log
 /// - **先勝ちルール**: スワイプ閾値と圧力ステージのどちらかが先に成立した方が勝つ。
 ///   発火後は全指が離れるまで再発火しない。
 ///
+/// - **スリープ復帰時の再接続**: スリープ/ハイバネートを跨ぐと `MTDeviceRef` が無効化され、
+///   エラーも出さずにフレームコールバックが永久に来なくなる。wake 通知でデバイスを
+///   作り直す(詳細は下の `restartMultitouch`)。
+///
 /// スレッドモデル: `start()` / `stop()` はメインスレッドから呼ぶ前提。
 /// MT のコールバックはフレームワーク側のスレッドから呼ばれるが、
 /// `DispatchQueue.main.async` で状態更新は全てメイン上で行うため
@@ -30,8 +34,19 @@ final class GestureMonitor {
 
     private let log = Logger(subsystem: "com.appleple.myactionhub", category: "GestureMonitor")
     private var devices: [MTDeviceRef] = []
+    /// `MTDeviceCreateList` フォールバック時の配列。要素の所有者なので保持が必要。
+    private var deviceList: CFArray?
+    /// `devices` が `MTDeviceCreateDefault` 由来か(= 自前で release すべきか)。
+    private var devicesAreOwned = false
     private var pressureMonitor: Any?
     private var isRunning = false
+
+    /// wake 系の NSWorkspace 通知の購読トークン。
+    private var workspaceObservers: [NSObjectProtocol] = []
+    /// 短時間に複数の wake 通知が来たときに再接続を1回にまとめるためのデバウンス。
+    private var restartWorkItem: DispatchWorkItem?
+    /// MTDeviceIsRunning が false に落ちたケースを拾う保険。
+    private var watchdogTimer: Timer?
 
     private enum State {
         case idle
@@ -51,12 +66,18 @@ final class GestureMonitor {
         GestureMonitor.shared = self
         startMultitouch()
         startPressureMonitor()
+        startWakeObservers()
+        startWatchdog()
         log.info("GestureMonitor 開始 (devices=\(self.devices.count, privacy: .public))")
     }
 
     func stop() {
         guard isRunning else { return }
         isRunning = false
+        stopWatchdog()
+        stopWakeObservers()
+        restartWorkItem?.cancel()
+        restartWorkItem = nil
         stopMultitouch()
         stopPressureMonitor()
         state = .idle
@@ -67,6 +88,83 @@ final class GestureMonitor {
         log.info("GestureMonitor 停止")
     }
 
+    // MARK: - Wake recovery
+
+    /// スリープ復帰後、MT デバイスを張り直すきっかけとなる通知を購読する。
+    ///
+    /// `didWakeNotification` だけだと、ふたを開けずに画面だけ復帰したケースや
+    /// ファストユーザスイッチからの復帰を取りこぼすため 3 種類を購読し、
+    /// 実際の再接続はデバウンスで1回にまとめる。
+    private func startWakeObservers() {
+        let center = NSWorkspace.shared.notificationCenter
+        let names: [NSNotification.Name] = [
+            NSWorkspace.didWakeNotification,
+            NSWorkspace.screensDidWakeNotification,
+            NSWorkspace.sessionDidBecomeActiveNotification,
+        ]
+        for name in names {
+            let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.scheduleMultitouchRestart(reason: name.rawValue)
+            }
+            workspaceObservers.append(token)
+        }
+    }
+
+    private func stopWakeObservers() {
+        let center = NSWorkspace.shared.notificationCenter
+        for token in workspaceObservers {
+            center.removeObserver(token)
+        }
+        workspaceObservers.removeAll()
+    }
+
+    /// 復帰直後は HID スタックがまだ整っておらず `MTDeviceCreateDefault` が
+    /// 使えないデバイスを返すことがあるため、少し待ってから張り直す。
+    private func scheduleMultitouchRestart(reason: String, delay: TimeInterval = 2.0) {
+        restartWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            self?.restartMultitouch(reason: reason)
+        }
+        restartWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+    }
+
+    private func restartMultitouch(reason: String) {
+        guard isRunning else { return }
+        stopMultitouch()
+        startMultitouch()
+        state = .idle
+        currentFingerCount = 0
+        log.info("""
+            Multitouch 再接続 (reason=\(reason, privacy: .public), \
+            devices=\(self.devices.count, privacy: .public))
+            """)
+    }
+
+    // MARK: - Watchdog
+
+    /// wake 通知が飛ばない経路(外付け Magic Trackpad の抜き差しなど)で
+    /// デバイスが止まった場合に拾う保険。フレーム受信の有無では判定できない
+    /// (指を触れていない間は 0 フレームが正常)ため `MTDeviceIsRunning` を見る。
+    private func startWatchdog() {
+        watchdogTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            self?.checkDevicesAlive()
+        }
+    }
+
+    private func stopWatchdog() {
+        watchdogTimer?.invalidate()
+        watchdogTimer = nil
+    }
+
+    private func checkDevicesAlive() {
+        guard isRunning else { return }
+        let dead = devices.isEmpty || devices.contains { !MTDeviceIsRunning($0) }
+        guard dead else { return }
+        log.warning("Multitouch デバイスが停止状態。再接続します")
+        restartMultitouch(reason: "watchdog")
+    }
+
     // MARK: - Multitouch
 
     private func startMultitouch() {
@@ -75,11 +173,16 @@ final class GestureMonitor {
         // を優先で使う。
         if let dev = MTDeviceCreateDefault() {
             devices.append(dev)
+            devicesAreOwned = true
         }
 
         // Default で取れなかったときだけ list にフォールバック
         if devices.isEmpty, let unmanaged = MTDeviceCreateList() {
+            // 配列の要素はこの CFArray が所有しているので、デバイスを使い終わるまで
+            // 配列自体を保持しておく(ローカルのまま解放するとポインタが宙に浮く)。
             let cfArray = unmanaged.takeRetainedValue()
+            deviceList = cfArray
+            devicesAreOwned = false
             if let array = cfArray as? [AnyObject] {
                 for obj in array {
                     let opaque = Unmanaged.passUnretained(obj).toOpaque()
@@ -103,8 +206,13 @@ final class GestureMonitor {
         for device in devices {
             _ = MTDeviceStop(device)
             _ = MTUnregisterContactFrameCallback(device, multitouchFrameCallback)
+            if devicesAreOwned {
+                MTDeviceRelease(device)
+            }
         }
         devices.removeAll()
+        deviceList = nil
+        devicesAreOwned = false
     }
 
     fileprivate func handleFrame(touches: [MTTouch]) {

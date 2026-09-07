@@ -64,5 +64,8 @@ extern int         MTUnregisterContactFrameCallback(MTDeviceRef device,
 extern int         MTDeviceStart(MTDeviceRef device, int unknown);
 extern int         MTDeviceStop(MTDeviceRef device);
 extern bool        MTDeviceIsRunning(MTDeviceRef device);
+// MTDeviceCreateDefault は呼ぶたびに別オブジェクトを返すため、
+// 作り直すときは対で解放しないとリークする。
+extern void        MTDeviceRelease(MTDeviceRef device);
 
 #endif /* MultitouchSupport_Bridging_Header_h */
