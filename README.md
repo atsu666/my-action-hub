@@ -39,3 +39,41 @@ MyActionHub/
 ```
 
 設定ファイルは `~/Library/Application Support/MyActionHub/config.json` に保存される。
+
+## トラブルシューティング
+
+### OS アップデート後に一部機能だけ動かなくなった
+
+macOS のアップデートで TCC の付与が片方だけ失効することがある(実例: macOS 26.7 で
+**入力監視は残ったままアクセシビリティだけ Denied** になった)。症状は機能ごとに分かれる。
+
+| 失効した権限 | 動かなくなる機能 |
+| --- | --- |
+| アクセシビリティ | ウィンドウ最大化 / 左右寄せ、Finder トグル |
+| 入力監視 | IME Switcher、トラックパッドジェスチャー |
+
+まず起動時ログで現在の付与状態を確認する。
+
+```bash
+log show --predicate 'subsystem == "com.appleple.myactionhub"' --last 1h --info --style compact
+```
+
+`権限: アクセシビリティ=false` のように出る。OS 側の判定そのものを見たい場合は tccd のログを読む。
+
+```bash
+log show --predicate 'process == "tccd" AND eventMessage CONTAINS "myactionhub"' --last 1h --info --style compact | grep "Handling access request"
+```
+
+`Auth Right: Denied (System Set)` なら失効。システム設定 →
+プライバシーとセキュリティ → アクセシビリティ で MyActionHub を ON に戻す。
+チェックを入れ直しても復活しない場合は、いったん一覧から削除(−)してから
+アプリを再起動して追加し直す。それでも駄目なら付与情報をリセットしてから再起動する。
+
+```bash
+tccutil reset Accessibility com.appleple.myactionhub
+```
+
+### リビルドのたびに権限を付け直すことになる
+
+`CODE_SIGN_IDENTITY` が ad-hoc(`-`)に戻っていないか確認する。詳細は
+[project.yml](project.yml) の署名まわりのコメントを参照。

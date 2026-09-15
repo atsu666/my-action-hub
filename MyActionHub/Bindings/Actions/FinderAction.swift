@@ -62,7 +62,12 @@ enum FinderAction {
 
     /// Finder が前面にいるときの分岐。
     private static func hideOrShowContent(_ finder: NSRunningApplication) {
-        let windows = standardWindows(pid: finder.processIdentifier)
+        guard let windows = standardWindows(pid: finder.processIdentifier) else {
+            // 枚数が分からない状態で openHome() すると、トグルのたびにウィンドウが
+            // 増える(= 本 Action の最重要要件を壊す)。数えられないときは hide だけ行う。
+            finder.hide()
+            return
+        }
         let minimized = windows.filter(isMinimized).count
         log.debug("""
             前面時のウィンドウ: \(windows.count, privacy: .public) 枚 \
@@ -91,7 +96,10 @@ enum FinderAction {
             return
         }
 
-        let windows = standardWindows(pid: finder.processIdentifier)
+        guard let windows = standardWindows(pid: finder.processIdentifier) else {
+            // 数えられない以上、新規ウィンドウは開かない。前面化だけで終える。
+            return
+        }
         let minimized = windows.filter(isMinimized).count
         log.debug("""
             表示後のウィンドウ: \(windows.count, privacy: .public) 枚 \
@@ -117,14 +125,21 @@ enum FinderAction {
     /// デスクトップやパネル類は subrole が `AXStandardWindow` ではないので落ちる。
     ///
     /// 注意: 対象アプリが `hide()` されていると、ウィンドウが存在しても 0 件が返る。
-    private static func standardWindows(pid: pid_t) -> [AXUIElement] {
+    ///
+    /// 戻り値の `nil` は「AX で数えられなかった」で、空配列の「0 枚」とは意味が違う。
+    /// 両者を潰すと、権限失効時にトグルのたびにウィンドウが増える。
+    private static func standardWindows(pid: pid_t) -> [AXUIElement]? {
         let app = AXUIElementCreateApplication(pid)
         var value: AnyObject?
         let status = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value)
         guard status == .success, let windows = value as? [AXUIElement] else {
-            // 主因はアクセシビリティ権限未付与。
-            log.warning("Finder のウィンドウ一覧を取得できません: status=\(status.rawValue, privacy: .public)")
-            return []
+            // 主因はアクセシビリティ権限未付与。OS アップデートで失効することがある。
+            log.error("""
+                Finder のウィンドウ一覧を取得できません: \
+                status=\(status.rawValue, privacy: .public) \
+                アクセシビリティ=\(PermissionChecker.isAccessibilityGranted(), privacy: .public)
+                """)
+            return nil
         }
         return windows.filter { subrole(of: $0) == (kAXStandardWindowSubrole as String) }
     }

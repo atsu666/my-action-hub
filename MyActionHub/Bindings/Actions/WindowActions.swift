@@ -63,8 +63,12 @@ enum WindowActions {
         )
         guard status == .success, let window = value else {
             // 失敗の主因はアクセシビリティ権限未付与か、対象アプリに focused window が無い。
-            // 詳細な診断ログは取得しない(高頻度に呼ばれるため)。
-            log.debug("focusedWindow nil: status=\(status.rawValue, privacy: .public)")
+            // 前者は OS アップデートで後から起きるので、権限の有無まで残す
+            // (呼ばれるのは Trigger 発火時だけなのでコストは問題にならない)。
+            log.warning("""
+                focusedWindow nil: status=\(status.rawValue, privacy: .public) \
+                アクセシビリティ=\(PermissionChecker.isAccessibilityGranted(), privacy: .public)
+                """)
             return nil
         }
         return (window as! AXUIElement)
